@@ -1,0 +1,120 @@
+name: "Bump version"
+description: "Bump version using BumpVer"
+
+branding:
+  icon: "cloud"
+  color: "blue"
+
+inputs:
+  component:
+    description: "Version component to bump, i.e. 'major', 'minor', 'patch', 'empty'"
+    required: false
+    default: ""
+  version:
+    description: "Specific version to set, i.e. '2.5.0'"
+    required: false
+    default: ""
+  primary:
+    description: "Primary string to parse component or version from"
+    required: false
+    default: ""
+  secondary:
+    description: "Secondary string to parse component or version from"
+    required: false
+    default: ""
+  extra:
+    description: "Extra command line options"
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: "Version after bump, i.e. '2.5.0'"
+    value: ${{ steps.bumpver.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: prepare
+      run: |
+        BUMPVER_COMPONENT="${{ inputs.component }}"
+        if [ "${{ github.event.inputs.component }}" != "" ]; then
+          BUMPVER_COMPONENT="${{ github.event.inputs.component }}"
+        fi
+        if [ "${BUMPVER_COMPONENT}" != "" ]; then
+          BUMPVER_COMPONENT=$(python ${{ github.action_path }}/parser.py extract "[bump ver ${BUMPVER_COMPONENT}]")
+        fi
+        echo "BUMPVER_COMPONENT=${BUMPVER_COMPONENT}" >> $GITHUB_ENV
+        BUMPVER_VERSION="${{ inputs.version }}"
+        if [ "${{ github.event.inputs.version }}" != "" ]; then
+          BUMPVER_VERSION="${{ github.event.inputs.version }}"
+        fi
+        if [ "${BUMPVER_VERSION}" != "" ]; then
+          BUMPVER_VERSION=$(python ${{ github.action_path }}/parser.py extract "[bump version ${BUMPVER_VERSION}]")
+        fi
+        echo "BUMPVER_VERSION=${BUMPVER_VERSION}" >> $GITHUB_ENV
+        BUMPVER_PRIMARY=$(echo ${{ inputs.primary }} | tr -d "'" | tr -d '"')
+        if [ "${{ github.event.inputs.primary }}" != "" ]; then
+          BUMPVER_PRIMARY=$(echo ${{ github.event.inputs.primary }} | tr -d "'" | tr -d '"')
+        fi
+        if [ "${BUMPVER_PRIMARY}" != "" ]; then
+          BUMPVER_PRIMARY=$(python ${{ github.action_path }}/parser.py extract "${BUMPVER_PRIMARY}")
+        fi
+        echo "BUMPVER_PRIMARY=${BUMPVER_PRIMARY}" >> $GITHUB_ENV
+        BUMPVER_SECONDARY=$(echo ${{ inputs.secondary }} | tr -d "'" | tr -d '"')
+        if [ "${{ github.event.inputs.secondary }}" != "" ]; then
+          BUMPVER_SECONDARY=$(echo ${{ github.event.inputs.secondary }} | tr -d "'" | tr -d '"')
+        fi
+        if [ "${BUMPVER_SECONDARY}" != "" ]; then
+          BUMPVER_SECONDARY=$(python ${{ github.action_path }}/parser.py extract "${BUMPVER_SECONDARY}")
+        fi
+        echo "BUMPVER_SECONDARY=${BUMPVER_SECONDARY}" >> $GITHUB_ENV
+        BUMPVER_EXTRA=$(echo ${{ inputs.extra }} | tr -d "'" | tr -d '"')
+        if [ "${{ github.event.inputs.extra }}" != "" ]; then
+          BUMPVER_EXTRA=$(echo ${{ github.event.inputs.extra }} | tr -d "'" | tr -d '"')
+        fi
+        echo "BUMPVER_EXTRA=${BUMPVER_EXTRA}" >> $GITHUB_ENV
+      shell: bash
+    - id: bumpver
+      run: |
+        BUMPVER_ARGS=""
+        if [ "${{ env.BUMPVER_VERSION }}" != "" ]; then
+          echo "=> using => version number"
+          BUMPVER_ARGS="${{ env.BUMPVER_VERSION }}"
+        elif [ "${{ env.BUMPVER_COMPONENT }}" != "" ]; then
+          echo "=> using => version component"
+          BUMPVER_ARGS="${{ env.BUMPVER_COMPONENT }}"
+        elif [ "${{ env.BUMPVER_PRIMARY }}" != "" ]; then
+          echo "=> using => primary string"
+          BUMPVER_ARGS="${{ env.BUMPVER_PRIMARY }}"
+        elif [ "${{ env.BUMPVER_SECONDARY }}" != "" ]; then
+          echo "=> using => secondary string"
+          BUMPVER_ARGS="${{ env.BUMPVER_SECONDARY }}"
+        fi
+        if [ "${{ env.BUMPVER_EXTRA }}" != "" ]; then
+          if [ "${BUMPVER_ARGS}" != "" ]; then
+            BUMPVER_ARGS="${BUMPVER_ARGS} ${{ env.BUMPVER_EXTRA }}"
+          else
+            BUMPVER_ARGS="update ${{ env.BUMPVER_EXTRA }}"
+          fi
+        fi
+        if [ "${BUMPVER_ARGS}" != "" ]; then
+          BUMPVER_ARGS="${BUMPVER_ARGS} --fetch"
+          echo "=> bumpver args => ${BUMPVER_ARGS}"
+          python3 -m venv .tmp-action-bumpver-venv
+          . .tmp-action-bumpver-venv/bin/activate
+          pip --disable-pip-version-check install bumpver>=2021.1112
+          bumpver ${BUMPVER_ARGS}
+          BUMPVER_RESULT_VERSION=$(python ${{ github.action_path }}/parser.py version)
+          echo "=> bumped version => ${BUMPVER_RESULT_VERSION}"
+          echo "::set-output name=version::${BUMPVER_RESULT_VERSION}"
+          deactivate
+          rm -rf .tmp-action-bumpver-venv
+        else
+          BUMPVER_ERROR_MESSAGE="bumpver args not found or invalid"
+          echo "=> ${BUMPVER_ERROR_MESSAGE}"
+          echo "::error::${BUMPVER_ERROR_MESSAGE}"
+          exit 1
+        fi
+      shell: bash
+      working-directory: ${{ github.workspace }}
